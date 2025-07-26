@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Express Backend - Home</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Express Backend</h1>
+            <nav>
+                <a href="/" class="nav-link active">Home</a>
+                <a href="/api/status" class="nav-link">API Status</a>
+                <a href="/api/health" class="nav-link">Health Check</a>
+            </nav>
+        </header>
+        
+        <main>
+            <section class="hero">
+                <h2>Welcome to Express Backend</h2>
+                <p>Your server is running successfully on port 3300!</p>
+            </section>
+            
+            
+            
+            <section class="website-test">
+                <h3>Test Website URLs</h3>
+                <p>Enter a website URL to get its title and information</p>
+                <div class="url-input-container">
+                    <input type="text" id="websiteUrl" placeholder="Enter website URL (e.g., google.com)" class="url-input">
+                    <button id="testWebsiteBtn" class="btn">Test Website</button>
+                </div>
+                <div class="cookie-consent-section">
+                    <h4>Cookie Consent Handling</h4>
+                    <div class="cookie-options">
+                        <label class="cookie-option">
+                            <input type="checkbox" id="handleCookies" checked>
+                            <span class="checkmark"></span>
+                            Handle cookie consent popups
+                        </label>
+                        <div class="cookie-selector-container">
+                            <label for="cookieSelector">Custom cookie text (optional):</label>
+                            <input type="text" id="cookieSelector" placeholder="e.g., Accept Cookies, I Agree, Got it" class="selector-input">
+                            <small>Leave empty to use common text patterns automatically</small>
+                        </div>
+                    </div>
+                </div>
+                <div id="websiteResult" class="website-result"></div>
+            </section>
+        </main>
+        
+        <footer>
+            <p>&copy; 2024 Express Backend Project</p>
+        </footer>
+    </div>
+    
+    <script src="/static/js/main.js"></script>
+</body>
+</html> 
