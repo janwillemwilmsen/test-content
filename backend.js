@@ -72,6 +72,29 @@ app.post('/api/test-website', async (req, res) => {
 
         //////////////////////////////// functions............
 
+        // Helper function to scrape HTML of an element
+        async function scrapeElementHtml(elementItem) {
+            try {
+                const html = await elementItem.evaluate(el => {
+                    // Get the outer HTML of the element
+                    let outerHtml = el.outerHTML;
+                    
+                    // If the HTML is too long, truncate it and add an indicator
+                    const maxLength = 1000;
+                    if (outerHtml.length > maxLength) {
+                        outerHtml = outerHtml.substring(0, maxLength) + '... [truncated]';
+                    }
+                    
+                    return outerHtml;
+                });
+                
+                return html;
+            } catch (error) {
+                console.log('Error scraping element HTML:', error.message);
+                return null;
+            }
+        }
+
         // Cookie consent handling function
         async function handleCookieConsent(page, customText = '') {
             try {
@@ -896,6 +919,9 @@ for (const elementItem of elements) {
 		 
 		// const dataString = JSON.stringify({ linkTxt, element, linkUrl, hasImageInLink, isNormalImage, elementAriaLabel, elementAriaLabelledByText, elementAriaDescribedByText, outerAriaContent, hasOuterAriaData, imageDetails  /* other data */ }) + '\n' ;
 		// urlHrefsArr.push({  type,element,linkId,buttonOrLinkId, relAttribute,linkTxt: linkTxtR,linkUrl,isInternal,target,titleAttribute,tabindexAttribute,isOpeningNewWindow, isButton, hasTabindex, hastitleAttribute, haslinkTxtR, hasAriaDataOnElement,	elementAriaLabel, elementAriaLabelledByText, elementAriaDescribedByText, hasOuterAriaData, outerAriaContent,hasImageInLink, imageDetails  /* other data */ })
+		
+		// Scrape the HTML of the element
+		const elementHtml = await scrapeElementHtml(elementItem);
 		urlHrefsArr.push({ 
 			linkHasShadowDOMContent, //// the inner content of elements inside shadowdom
 			linkHasShadowDOM, //// elementItem.evaluate(node => !!node.shadowRoot)
@@ -931,7 +957,8 @@ for (const elementItem of elements) {
 			nestedAria,
 			effectiveRect,
 			ancestorLink,
-			figureInfo  /* other data */ })
+			figureInfo,
+			elementHtml  /* other data */ })
 
 	
 	

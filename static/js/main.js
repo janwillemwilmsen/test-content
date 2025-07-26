@@ -122,14 +122,33 @@ document.addEventListener('DOMContentLoaded', function() {
                                                 <span class="item-type ${item.isButton ? 'button' : 'link'}">${item.isButton ? 'Button' : 'Link'} #${item.buttonOrLinkId || index + 1}</span>
                                                 <span class="item-element">${item.element || 'Unknown'}</span>
                                             </div>
-                                            <div class="item-content">
-                                                ${item.linkTxt ? `<div class="item-text"><strong>Text:</strong> ${item.linkTxt}</div>` : ''}
-                                                ${item.linkUrl ? `<div class="item-url"><strong>URL:</strong> <a href="${item.linkUrl}" target="_blank">${item.linkUrl}</a></div>` : ''}
-                                                ${item.target ? `<div class="item-target"><strong>Target:</strong> ${item.target}</div>` : ''}
-                                                ${item.titleAttribute ? `<div class="item-title"><strong>Title:</strong> ${item.titleAttribute}</div>` : ''}
-                                                ${item.hasImageInLink ? `<div class="item-image"><strong>Contains Image:</strong> Yes</div>` : ''}
-                                                ${item.elementAriaLabel ? `<div class="item-aria"><strong>Aria Label:</strong> ${item.elementAriaLabel}</div>` : ''}
-                                            </div>
+                                                                                    <div class="item-content">
+                                            ${item.linkTxt ? `<div class="item-text"><strong>Text:</strong> ${item.linkTxt}</div>` : ''}
+                                            ${item.linkUrl ? `<div class="item-url"><strong>URL:</strong> <a href="${item.linkUrl}" target="_blank">${item.linkUrl}</a></div>` : ''}
+                                            ${item.target ? `<div class="item-target"><strong>Target:</strong> ${item.target}</div>` : ''}
+                                            ${item.titleAttribute ? `<div class="item-title"><strong>Title:</strong> ${item.titleAttribute}</div>` : ''}
+                                            ${item.hasImageInLink ? `<div class="item-image"><strong>Contains Image:</strong> Yes</div>` : ''}
+                                            ${item.elementAriaLabel ? `<div class="item-aria"><strong>Aria Label:</strong> ${item.elementAriaLabel}</div>` : ''}
+                                            ${item.elementHtml ? `
+                                                <div class="item-html">
+                                                    <button class="html-view-btn" ${isPopoverSupported() ? `popovertarget="html-popover-${index}"` : `onclick="showHtmlFallback('${escapeHtml(item.elementHtml)}', this)"`}>
+                                                        <span class="btn-icon">🔍</span>
+                                                        View HTML
+                                                    </button>
+                                                    ${isPopoverSupported() ? `
+                                                        <div id="html-popover-${index}" class="html-popover" popover>
+                                                            <div class="popover-header">
+                                                                <h4>Element HTML</h4>
+                                                                <button class="popover-close" onclick="this.parentElement.parentElement.hidePopover()">×</button>
+                                                            </div>
+                                                            <div class="popover-content">
+                                                                <pre><code>${escapeHtml(item.elementHtml)}</code></pre>
+                                                            </div>
+                                                        </div>
+                                                    ` : ''}
+                                                </div>
+                                            ` : ''}
+                                        </div>
                                         </div>
                                     `;
                                 }).join('')}
@@ -247,6 +266,67 @@ async function makeAPICall(url, options = {}) {
         console.error('API call failed:', error);
         throw error;
     }
+}
+
+// Utility function to escape HTML for safe display
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Check if native popover is supported
+function isPopoverSupported() {
+    return 'showPopover' in HTMLElement.prototype;
+}
+
+
+
+// Fallback for browsers without native popover support
+function showHtmlFallback(htmlContent, button) {
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+    `;
+    
+    const content = document.createElement('div');
+    content.style.cssText = `
+        background: white;
+        border-radius: 8px;
+        max-width: 80%;
+        max-height: 80%;
+        overflow: auto;
+        position: relative;
+    `;
+    
+    content.innerHTML = `
+        <div style="padding: 16px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center;">
+            <h4 style="margin: 0; color: #374151;">Element HTML</h4>
+            <button onclick="this.parentElement.parentElement.parentElement.remove()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer;">×</button>
+        </div>
+        <div style="padding: 16px;">
+            <pre style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; font-size: 0.8rem; line-height: 1.4; overflow-x: auto; white-space: pre-wrap; word-break: break-word; margin: 0;"><code>${escapeHtml(htmlContent)}</code></pre>
+        </div>
+    `;
+    
+    modal.appendChild(content);
+    document.body.appendChild(modal);
+    
+    // Close on outside click
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            modal.remove();
+        }
+    });
 }
 
 // Export for use in other scripts (if needed)
