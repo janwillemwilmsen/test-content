@@ -680,6 +680,8 @@ async function advancedExtractImageData(elementItem, page) {
             const ariaDescribedBy = await checkSvgForAriaDescribedBy(svgElem, page);
             const { hasAriaHiddenTrue } = await checkAriaHiddenIsTrue(svgElem);
             const { hasRolePresentationOrRoleNone } = await checkImageRoleForPresentationOrNone(svgElem);
+            const svgHtml = await svgElem.evaluate(el => el.outerHTML);
+            const svgPreview = await generateSvgPreview(svgHtml, page);
             imageDetails.push({ 
                 imageId: imageId++, 
                 type: 'svg', 
@@ -690,7 +692,8 @@ async function advancedExtractImageData(elementItem, page) {
                 ariaDescribedBy: ariaDescribedBy, 
                 titleText: titleText, 
                 hasAriaHiddenTrue: hasAriaHiddenTrue, 
-                hasRolePresentationOrRoleNone: hasRolePresentationOrRoleNone 
+                hasRolePresentationOrRoleNone: hasRolePresentationOrRoleNone,
+                preview: svgPreview
             });
         }
     }
@@ -797,182 +800,530 @@ async function findAncestorLink(elementItem) {
     });
 }
 
+const { Resvg } = require('@resvg/resvg-js');
+const { Buffer } = require('buffer');
 
-        ////////////////////////////////
+async function generateSvgPreview(svgString, page) {
+    try {
+        // Process SVG in browser context using the analysis functions
+        const processedSvg = await page.evaluate((svgStr) => {
+            // Import the SVG analysis functions into browser context
+            function sanitizeSvgForPreview(svgSource) {
+                if (!svgSource || typeof svgSource !== 'string') {
+                    console.warn('sanitizeSvgForPreview received invalid input:', svgSource);
+                    return '';
+                }
+                try {
+                    let cleanedSource = svgSource.replace(/xmlns=["']https?:\/\/(www\.)?w3\.org\/2000\/svg["']/g, 'xmlns="http://www.w3.org/2000/svg"');
+                    
+                    const usesXlink = cleanedSource.includes('xlink:');
+                    const declaresXlink = cleanedSource.includes('xmlns:xlink');
+                    
+                    if (usesXlink && !declaresXlink) {
+                        cleanedSource = cleanedSource.replace(/<svg/i, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
+                    }
+                    
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(cleanedSource, 'image/svg+xml');
+                    
+                    const errors = doc.querySelectorAll('parsererror');
+                    if (errors.length > 0) {
+                        console.warn('SVG parsing error:', errors[0].textContent);
+                        return svgSource;
+                    }
+                    
+                    const svg = doc.querySelector('svg');
+                    if (!svg) {
+                        return svgSource;
+                    }
+                    
+                    svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+                    if (usesXlink && !svg.hasAttribute('xmlns:xlink')) {
+                        svg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+                    }
+                    
+                    return new XMLSerializer().serializeToString(doc);
+                } catch (e) {
+                    console.error('Error sanitizing SVG:', e);
+                    return svgSource;
+                }
+            }
+            
+            function ensureSvgFixedColor(svgString, fixedColor = '#888888') {
+                if (!svgString) return null;
+                try {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(svgString, "image/svg+xml");
+                    const svgElement = doc.documentElement;
+                    
+                    const parseError = svgElement.querySelector('parsererror');
+                    if (svgElement.tagName === 'parsererror' || parseError) {
+                        return svgString;
+                    }
+                    
+                    const elementsToColor = svgElement.querySelectorAll('path, rect, circle, polygon, ellipse, line, polyline');
+                    
+                    elementsToColor.forEach(el => {
+                        const currentFill = el.getAttribute('fill');
+                        const hasClasses = el.getAttribute('class');
+                        
+                        if (!currentFill || currentFill.toLowerCase() === 'currentcolor' || (hasClasses && !currentFill)) {
+                            el.setAttribute('fill', fixedColor);
+                        }
+                        
+                        const currentStroke = el.getAttribute('stroke');
+                        if (!currentStroke || currentStroke.toLowerCase() === 'currentcolor') {
+                            const fillIsNone = currentFill && currentFill.toLowerCase() === 'none';
+                            const tagName = el.tagName.toLowerCase();
+                            if (fillIsNone || (!currentFill && !hasClasses) || tagName === 'line' || tagName === 'polyline') {
+                                el.setAttribute('stroke', fixedColor);
+                            }
+                        }
+                    });
+                    
+                    return new XMLSerializer().serializeToString(svgElement);
+                } catch (e) {
+                    console.error("Error processing SVG for fixed color:", e);
+                    return svgString;
+                }
+            }
+            
+            // Process the SVG using the functions
+            const sanitized = sanitizeSvgForPreview(svgStr);
+            const withFixedColors = ensureSvgFixedColor(sanitized);
+            
+            return withFixedColors || sanitized || svgStr;
+        }, svgString);
+        
+        // Render the processed SVG to PNG using resvg
+        const resvg = new Resvg(processedSvg, { 
+            fitTo: { mode: 'width', value: 200 }
+        });
+        const pngData = resvg.render();
+        const pngBuffer = pngData.asPng();
+        
+        return `data:image/png;base64,${pngBuffer.toString('base64')}`;
+    } catch (err) {
+        console.error('SVG preview error:', err);
+        try {
+            const resvg = new Resvg(svgString, { fitTo: { mode: 'width', value: 200 } });
+            const pngData = resvg.render();
+            const pngBuffer = pngData.asPng();
+            return `data:image/png;base64,${pngBuffer.toString('base64')}`;
+        } catch (fallbackErr) {
+            console.error('SVG preview fallback error:', fallbackErr);
+            return null;
+        }
+    }
+}
 
+
+///// START SVG functions (for Links and Buttons part)
+
+function getSvgTitleDesc(svgElement) {
+    const titleEl = svgElement.querySelector('title');
+    const descEl = svgElement.querySelector('desc');
+    const title = titleEl ? titleEl.textContent?.trim() : '';
+    const desc = descEl ? descEl.textContent?.trim() : '';
+    if (title && desc) return `${title} - ${desc}`;
+    return title || desc || '';
+  }
+  
+  function sanitizeSvgForPreview(svgSource) {
+    // Fixes namespace issues and xlink declarations
+    // Essential for cross-browser SVG compatibility
+      if (!svgSource || typeof svgSource !== 'string') {
+          console.warn('sanitizeSvgForPreview received invalid input:', svgSource);
+          return ''; // Return empty string for invalid input
+      }
+      try {
+          // Fix incorrect namespace URLs (both http vs https and with/without www)
+          let cleanedSource = svgSource.replace(/xmlns=["']https?:\/\/(www\.)?w3\.org\/2000\/svg["']/g,
+                                       'xmlns="http://www.w3.org/2000/svg"');
+  
+          // --- BEGIN xlink NAMESPACE FIX ---
+          // Check if xlink prefix is used but the namespace is NOT declared
+          const usesXlink = cleanedSource.includes('xlink:');
+          const declaresXlink = cleanedSource.includes('xmlns:xlink');
+  
+          if (usesXlink && !declaresXlink) {
+              debugLog('Detected xlink usage without declaration. Adding xmlns:xlink.');
+              // Attempt to add xmlns:xlink to the root <svg> tag
+              // This regex is basic and might fail on complex SVG tags, but covers common cases
+              cleanedSource = cleanedSource.replace(/<svg/i, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
+          }
+          // --- END xlink NAMESPACE FIX ---
+  
+          // Continue with existing sanitization using the potentially modified source
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(cleanedSource, 'image/svg+xml');
+  
+          // Check for parsing errors AFTER attempting the fix
+          const errors = doc.querySelectorAll('parsererror');
+          if (errors.length > 0) {
+              // Log the error with the source *after* the attempted fix
+              console.warn('SVG parsing error (after xlink fix attempt):', errors[0].textContent, 'Source:', cleanedSource);
+              // Return the original source as a last resort, maybe the browser is more lenient
+              return svgSource;
+          }
+  
+          const svg = doc.querySelector('svg');
+          if (!svg) {
+              console.warn('Could not find SVG element after parsing:', cleanedSource);
+              return svgSource; // Fallback
+          }
+  
+          // Ensure main SVG namespace is correct (might have been missed by regex)
+          svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+          // Ensure xlink namespace is present if needed (double-check after parsing)
+          if (usesXlink && !svg.hasAttribute('xmlns:xlink')) {
+               svg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+          }
+  
+          // Basic pass-through for now
+          return new XMLSerializer().serializeToString(doc);
+  
+      } catch (e) {
+          console.error('Error sanitizing SVG:', e, 'Original source:', svgSource);
+          return svgSource; // Fallback to original source on any exception
+      }
+  
+  }
+  
+  
+  function ensureSvgFixedColor(svgString, fixedColor = '#888888') {
+    // Replaces currentColor and adds missing fill/stroke attributes
+    // Critical for consistent SVG rendering
+    // Helper: Ensure SVG elements have a visible fixed color attribute
+      if (!svgString) return null;
+      try {
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(svgString, "image/svg+xml");
+          const svgElement = doc.documentElement;
+  
+          const parseError = svgElement.querySelector('parsererror');
+          if (svgElement.tagName === 'parsererror' || parseError) {
+               console.warn('Failed to parse SVG string. Original source:', svgString);
+               return svgString;
+          }
+  
+          // Select elements that typically need fill/stroke
+          const elementsToColor = svgElement.querySelectorAll('path, rect, circle, polygon, ellipse, line, polyline');
+  
+          elementsToColor.forEach(el => {
+               // Check fill: Add if missing OR replace if it's 'currentColor' OR if element has CSS classes (likely styled via CSS)
+               const currentFill = el.getAttribute('fill');
+               const hasClasses = el.getAttribute('class');
+               
+               // Be more aggressive: add fill if missing, currentColor, or has CSS classes that might provide styling
+               if (!currentFill || currentFill.toLowerCase() === 'currentcolor' || (hasClasses && !currentFill)) {
+                    el.setAttribute('fill', fixedColor);
+                    debugLog(`Added fill="${fixedColor}" to ${el.tagName} element with classes: ${hasClasses || 'none'}`);
+               } // Otherwise, leave existing explicit color
+  
+               // Check stroke: Add if missing OR replace if it's 'currentColor'
+               const currentStroke = el.getAttribute('stroke');
+               if (!currentStroke || currentStroke.toLowerCase() === 'currentcolor') {
+                    // Only add stroke if it likely needs one (e.g., lines, or paths without fill)
+                    // Basic heuristic: add stroke if fill is none or missing, or if it's a line/polyline
+                    const fillIsNone = currentFill && currentFill.toLowerCase() === 'none';
+                    const tagName = el.tagName.toLowerCase();
+                    if (fillIsNone || (!currentFill && !hasClasses) || tagName === 'line' || tagName === 'polyline') {
+                       el.setAttribute('stroke', fixedColor);
+                       debugLog(`Added stroke="${fixedColor}" to ${el.tagName} element`);
+                    }
+               } // Otherwise, leave existing explicit stroke color
+          });
+  
+          const serializer = new XMLSerializer();
+          const result = serializer.serializeToString(svgElement);
+          debugLog(`ensureSvgFixedColor processed ${elementsToColor.length} elements, result length: ${result.length}`);
+          return result;
+      } catch (e) {
+          console.error("Error processing SVG for fixed color. Original source:", svgString, e);
+          return svgString;
+      }
+  
+  }
+  
+  function resolveCssVariablesInSvg(svgElement) {
+    // Converts CSS variables to inline attributes
+    // Makes SVGs self-contained and context-independent
+      try {
+          const clonedSvg = svgElement.cloneNode(true);
+  
+          // Select elements that might use CSS variables for fill/stroke in the ORIGINAL element
+          const originalElements = svgElement.querySelectorAll('path, circle, rect, ellipse, line, polyline, polygon, text, g');
+          // Select corresponding elements in the CLONE
+          const clonedElements = clonedSvg.querySelectorAll('path, circle, rect, ellipse, line, polyline, polygon, text, g');
+  
+          if (originalElements.length !== clonedElements.length) {
+              console.warn('Mismatch between original and cloned SVG elements for CSS var resolution. Skipping.', svgElement);
+              return clonedSvg.outerHTML; // Return clone's outerHTML as fallback
+          }
+  
+          originalElements.forEach((origEl, index) => {
+              const clonedEl = clonedElements[index];
+              if (!clonedEl) return; // Should not happen if lengths match
+  
+              try {
+                  const computedStyle = window.getComputedStyle(origEl);
+                  const computedFill = computedStyle.getPropertyValue('fill');
+                  const computedStroke = computedStyle.getPropertyValue('stroke');
+                  const computedOpacity = computedStyle.getPropertyValue('opacity');
+                  const computedFillOpacity = computedStyle.getPropertyValue('fill-opacity');
+                  const computedStrokeOpacity = computedStyle.getPropertyValue('stroke-opacity');
+  
+                  // Apply computed values ONLY if they are not the default/initial ones
+                  // or if the original attribute explicitly used 'var('
+                  // This prevents overriding meaningful 'none' or specific color values unnecessarily
+                  // However, simpler approach: always apply computed style for robustness
+  
+                  if (computedFill) {
+                      clonedEl.setAttribute('fill', computedFill);
+                  }
+                  if (computedStroke && computedStroke !== 'none') { // Avoid setting stroke="none"
+                      clonedEl.setAttribute('stroke', computedStroke);
+                  }
+  
+                  // Also handle opacities which might be needed for effects
+                  if (computedOpacity && computedOpacity !== '1') {
+                      clonedEl.setAttribute('opacity', computedOpacity);
+                  }
+                  if (computedFillOpacity && computedFillOpacity !== '1') {
+                      clonedEl.setAttribute('fill-opacity', computedFillOpacity);
+                  }
+                  if (computedStrokeOpacity && computedStrokeOpacity !== '1') {
+                      clonedEl.setAttribute('stroke-opacity', computedStrokeOpacity);
+                  }
+  
+              } catch (styleError) {
+                  console.warn('Error getting computed style for SVG child:', styleError, origEl);
+              }
+          });
+  
+          return clonedSvg.outerHTML;
+      } catch (cloneError) {
+          console.error('Error resolving CSS variables in SVG:', cloneError, svgElement);
+          // Fallback to original outerHTML if cloning/processing fails
+          return svgElement.outerHTML;
+      }
+  
+  }
+  
+  
+  async function fetchAndProcessSvgUse(svgElement) {
+    // Processes <use> elements and resolves symbol references
+    // Handles both internal and external SVG references
+      try {
+        // Create a new SVG element
+        const newSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        
+        // Copy original SVG attributes
+        Array.from(svgElement.attributes).forEach(attr => {
+            newSvg.setAttribute(attr.name, attr.value);
+        });
+        
+        // Ensure required SVG attributes
+        newSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        if (!newSvg.getAttribute('width')) newSvg.setAttribute('width', '24');
+        if (!newSvg.getAttribute('height')) newSvg.setAttribute('height', '24');
+        
+        // Check if SVG has inline content (Scenario 1)
+        const hasInlineContent = svgElement.children.length > 0 && 
+            !svgElement.querySelector('use');
+        if (hasInlineContent) {
+            Array.from(svgElement.children).forEach(child => {
+                newSvg.appendChild(child.cloneNode(true));
+            });
+            return newSvg.outerHTML;
+        }
+        
+        // Get the use element for scenarios 2 and 3
+        const useEl = svgElement.querySelector('use');
+        if (!useEl) return null;
+        
+        // Get href (support both xlink:href and href)
+          const href = useEl.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || 
+                      useEl.getAttribute('href');
+          
+          if (!href) return null;
+          
+          // Split URL and fragment
+          const [url, fragment] = href.split('#');
+        
+        // Handle inline reference (Scenario 3)
+        if (!url && fragment) {
+            const referencedElement = document.getElementById(fragment);
+            if (!referencedElement) return null;
+            
+            if (referencedElement.tagName.toLowerCase() === 'symbol') {
+                const viewBox = referencedElement.getAttribute('viewBox');
+                if (viewBox) newSvg.setAttribute('viewBox', viewBox);
+                Array.from(referencedElement.children).forEach(child => {
+                    newSvg.appendChild(child.cloneNode(true));
+                });
+            } else {
+                newSvg.appendChild(referencedElement.cloneNode(true));
+            }
+            return newSvg.outerHTML;
+        }
+        
+        // Handle external SVG (Scenario 2)
+          if (!fragment) return null;
+          
+          const fullUrl = new URL(url, window.location.href).href;
+        if (DEBUG) console.log('Fetching SVG from:', fullUrl);
+          
+          const response = await fetch(fullUrl);
+          if (!response.ok) throw new Error(`Failed to fetch: ${response.status}`);
+          
+          const svgText = await response.text();
+        if (DEBUG) console.log('Fetched SVG content:', svgText.substring(0, 100) + '...');
+        
+          const parser = new DOMParser();
+          const externalDoc = parser.parseFromString(svgText, 'image/svg+xml');
+          
+          const referencedElement = externalDoc.getElementById(fragment);
+        if (!referencedElement) {
+            if (DEBUG) console.log('Referenced element not found:', fragment);
+            return null;
+        }
+        
+          if (referencedElement.tagName.toLowerCase() === 'symbol') {
+              const viewBox = referencedElement.getAttribute('viewBox');
+              if (viewBox) newSvg.setAttribute('viewBox', viewBox);
+              Array.from(referencedElement.children).forEach(child => {
+                  newSvg.appendChild(child.cloneNode(true));
+              });
+          } else {
+              newSvg.appendChild(referencedElement.cloneNode(true));
+          }
+          
+        if (DEBUG) console.log('Processed SVG:', newSvg.outerHTML);
+          return newSvg.outerHTML;
+      } catch (error) {
+        console.error('Error processing SVG use:', error);
+          return null;
+      }
+  }
+  
+  ///// END SVG functions (for Links and Buttons part)
+
+
+        ///////////////////////////////
 
         let id = -1
 
         // Selecting all <a> and <button> elements and logging their outer HTML
-        
         
         let urlHrefsArr = [];
         let buttonId = 0;
         let ahrefId = 0;
         const elements = await page.$$('a, button, [role="link"], [role="button"]');
 
+        for (const elementItem of elements) {
+            id++
+            let remainingLinks = elements.length - id;
 
+            const elementIds = await countElementId(elementItem, buttonId, ahrefId, page.url());
+            const {  buttonOrLinkId, buttonId: updatedButtonId, ahrefId: updatedAhrefId } = elementIds;
 
-/// add src for img
-/// add selector - check all upper elements. To much processing. Not for now...
-// for (let i = 0; i < urlHrefs.length; i++) {
-for (const elementItem of elements) {
-	id++
-	let remainingLinks = elements.length - id;
+            buttonId = updatedButtonId;
+            ahrefId = updatedAhrefId;
 
-	///// // sendMessageToClient(clientId, `Testing links and buttons ${id}..`);
-	///// sendMessageToClient(clientId, `Testing links/buttons ${id}/${elements.length}. ${remainingLinks} left to test.`);
+            const linkcontainsSlot = await containsSlots(elementItem)
+            const linkslotContent = await fetchSlotContent(elementItem)
 
-	// console.log('TEST', pageUrl )
-	// console.log('TEST', id, buttonId, ahrefId, page.url() )
-	const elementIds = await countElementId(elementItem, buttonId, ahrefId, page.url());
-	// console.log('eIds', elementIds)
-	const {  buttonOrLinkId, buttonId: updatedButtonId, ahrefId: updatedAhrefId } = elementIds;
+            const linkHasShadowDOM = await elementItem.evaluate(node => !!node.shadowRoot);
+            const linkHasShadowDOMContent = await HasShadowDOMContent(elementItem)
 
-	buttonId = updatedButtonId;
-	ahrefId = updatedAhrefId;
+            const elementData = await extractElementData(elementItem, page.url(), id);
+            let { type, element, linkUrl, linkId,  relAttribute, linkTxt: linkTxtR, isInternal, target, titleAttribute, tabindexAttribute,isOpeningNewWindow, isButton, hasTabindex, hastitleAttribute, haslinkTxtR, hasAriaDataOnElement, elementAriaLabel, elementAriaLabelledBy, elementAriaDescribedBy, pseudoText, isAbsolute, nestedAria, effectiveRect, opensInNewWindowJs, ancestorLink } = elementData;
 
-	const linkcontainsSlot = await containsSlots(elementItem)
-	const linkslotContent = await fetchSlotContent(elementItem)
+            // On the element
+            const elementAriaLabelledByText = await getContentForAriaAttributes(elementAriaLabelledBy, page);
+            const elementAriaDescribedByText = await getContentForAriaAttributes(elementAriaDescribedBy, page);
 
+            const hasOuterAriaData = false
+            const outerAriaContent = false 
+            
+            // If Image is in Link - use advanced extraction
+            const { imageDetails, figureInfo, hasImageInLink } = await advancedExtractImageData(elementItem, page);
 
-	// const linkHasShadowDOM = await HasShadowDOM(elementItem)
-	const linkHasShadowDOM = await elementItem.evaluate(node => !!node.shadowRoot);
-	//// Fuck this ShadowDom do not even know if it has impact. Notice: function above checks if the element has Shadow, not if it is contained in Shadow. Need to investigate........
-	// console.log('linkHasShadowDOM -------------------------------------------------------------', linkHasShadowDOM)
-	const linkHasShadowDOMContent = await HasShadowDOMContent(elementItem)
+            // Trim contents to remove any extraneous whitespace
+            const trimmedSlotContent = linkslotContent.trim();
+            const trimmedShadowContent = linkHasShadowDOMContent.trim();
 
-	const elementData = await extractElementData(elementItem, page.url(), id);
-	let { type, element, linkUrl, linkId,  relAttribute, linkTxt: linkTxtR, isInternal, target, titleAttribute, tabindexAttribute,isOpeningNewWindow, isButton, hasTabindex, hastitleAttribute, haslinkTxtR, hasAriaDataOnElement, elementAriaLabel, elementAriaLabelledBy, elementAriaDescribedBy, pseudoText, isAbsolute, nestedAria, effectiveRect, opensInNewWindowJs, ancestorLink } = elementData;
-
-	// On the element
-	const elementAriaLabelledByText = await getContentForAriaAttributes(elementAriaLabelledBy, page);
-	const elementAriaDescribedByText = await getContentForAriaAttributes(elementAriaDescribedBy, page);
-
-	// aria outside the element ///// ---> This was from when I thought aria-* on surrounding elements had impact and were important. Guess they are not. So setting to empty string..
-	// const outerAriaData = await findAncestorWithAriaAttributes(elementItem);
-	// const { outerAriaContent, hasOuterAriaData } = await processAriaAttributes(outerAriaData, page);
-	const hasOuterAriaData = false /// might be better with false..............
-	const outerAriaContent = false 
-	
-	// console.log('outerAriaData', outerAriaData)
-	// console.log('Aria-*', outerAriaContent, hasOuterAriaData)
-
-	// console.log(elementData);
-	// const dataString2 = JSON.stringify({ elementData /* other data */ }) + '\n' ;
-	// fs.appendFileSync('z-test-file.txt', dataString2);
-	// If Image is in Link - use advanced extraction
-	const { imageDetails, figureInfo, hasImageInLink } = await advancedExtractImageData(elementItem, page);
-
-	// console.log('---------------------')
-
-	  // Trim contents to remove any extraneous whitespace
-	  const trimmedSlotContent = linkslotContent.trim();
-	  const trimmedShadowContent = linkHasShadowDOMContent.trim();
+            // Initialize an array to collect valid text pieces
+            let contents = [];
   
-
-
-	//   console.log('linkTxtR pre:', linkTxtR)
-	//   console.log('trimmedSlotContent:', trimmedSlotContent)
-	//   console.log('trimmedShadowContent:', trimmedShadowContent)
-
-	  // Initialize an array to collect valid text pieces
-	  let contents = [];
+            // If linkTxt is non-empty, add it to contents array
+            if (linkTxtR) {
+                contents.push(linkTxtR);
+            }
   
-	  // If linkTxt is non-empty, add it to contents array
-	  if (linkTxtR) {
-		  contents.push(linkTxtR);
-	  }
+            // Check if slot content is non-empty and distinct from linkTxt
+            if (trimmedSlotContent.trim() && trimmedSlotContent.trim() !== linkTxtR.trim) {
+                console.log('Push trimmedSlotContent')
+                contents.push(trimmedSlotContent);
+            }
   
-	  // Check if slot content is non-empty and distinct from linkTxt
-	  if (trimmedSlotContent.trim() && trimmedSlotContent.trim() !== linkTxtR.trim) {
-		console.log('Push trimmedSlotContent')
-		  contents.push(trimmedSlotContent);
-	  }
+            // Check if shadow DOM content is non-empty, distinct from linkTxt, and not a duplicate of slot content
+            if (trimmedShadowContent.trim() && trimmedShadowContent.trim() !== linkTxtR.trim() && trimmedShadowContent.trim() !== trimmedSlotContent.trim()) {
+                console.log('Push trimmedShadowContent')
+                contents.push(trimmedShadowContent);
+            }
   
-	  // Check if shadow DOM content is non-empty, distinct from linkTxt, and not a duplicate of slot content
-	  if (trimmedShadowContent.trim() && trimmedShadowContent.trim() !== linkTxtR.trim() && trimmedShadowContent.trim() !== trimmedSlotContent.trim()) {
-		console.log('Push trimmedShadowContent')
+            // Join all valid, non-duplicate contents with a space or any other delimiter as needed
+            if(trimmedSlotContent || trimmedShadowContent){
+                linkTxtR = contents.join(" "); 
+            }
 
-		  contents.push(trimmedShadowContent);
-	  }
-  
-	  // Join all valid, non-duplicate contents with a space or any other delimiter as needed
-	  if(trimmedSlotContent || trimmedShadowContent){
-	  linkTxtR = contents.join(" "); 
-	  }
+            haslinkTxtR = linkTxtR !== '';
 
-	  haslinkTxtR = linkTxtR !== '';
-	//   console.log('linkTxtR post:', linkTxtR)
-
-	//   console.log('---------------------')
-
-	// LOGGIN
-	// if(hasImageInLink === true){
-	// console.log({ linkTxt ,element, linkUrl, hasImageInLink, isNormalImage, imageIsSvg, altText, /* other data */ });
-	// }
-	
-	// if (hasImageInLink === true) {
-		// const dataString = JSON.stringify({ linkTxt, element, linkUrl, hasImageInLink, isNormalImage, imageIsSvg, imageDetails  /* other data */ }) + '\n' ;
-		// const dataString = JSON.stringify({ linkTxt, element, linkUrl, hasImageInLink, isNormalImage, elementAriaLabel, elementAriaLabelledByText, elementAriaDescribedByText  /* other data */ }) + '\n' ;
-		
-		 
-		// const dataString = JSON.stringify({ linkTxt, element, linkUrl, hasImageInLink, isNormalImage, elementAriaLabel, elementAriaLabelledByText, elementAriaDescribedByText, outerAriaContent, hasOuterAriaData, imageDetails  /* other data */ }) + '\n' ;
-		// urlHrefsArr.push({  type,element,linkId,buttonOrLinkId, relAttribute,linkTxt: linkTxtR,linkUrl,isInternal,target,titleAttribute,tabindexAttribute,isOpeningNewWindow, isButton, hasTabindex, hastitleAttribute, haslinkTxtR, hasAriaDataOnElement,	elementAriaLabel, elementAriaLabelledByText, elementAriaDescribedByText, hasOuterAriaData, outerAriaContent,hasImageInLink, imageDetails  /* other data */ })
-		
-		// Scrape the HTML of the element
-		const elementHtml = await scrapeElementHtml(elementItem);
-		urlHrefsArr.push({ 
-			linkHasShadowDOMContent, //// the inner content of elements inside shadowdom
-			linkHasShadowDOM, //// elementItem.evaluate(node => !!node.shadowRoot)
-			linkslotContent, 
-			linkcontainsSlot, 
-			type,
-			element,
-			linkId,
-			buttonOrLinkId, 
-			relAttribute, /// the value of the rel attribute
-			haslinkTxtR, /// if link or button has text, shadowdom or slot content
-			linkTxt: linkTxtR,
-			linkUrl, /// The href attribute
-			isInternal, /// If the link is internal or external (hostname = hostname)
-			opensInNewWindowJs, // Check for javascript open in new window.
-			isOpeningNewWindow,  // Check for target="_blank"
-			target, /// Get the value if link has target attribute
-			hastitleAttribute, /// if title = !null
-			titleAttribute,  //// the title attribute value.
-			hasTabindex,  /// if tabIndex = !null 
-			tabindexAttribute, /// the value of the tabindex attribute 
-			isButton,  /// if the element type or role is button
-			hasAriaDataOnElement,	 /// if the element has aria-* attributes -> think need to check if they are on the element or on the surrounding or inner elements.
-			elementAriaLabel,  //// aria label value
-			elementAriaLabelledByText,   //// aria labelled by value
-			elementAriaDescribedByText,  //// aria described by value
-			hasOuterAriaData,  /// set to false - is it important?
-			outerAriaContent,  /// set to false - is it important?
-			hasImageInLink, /// if there is an element with img or svg tag inside the link
-			imageDetails, /// check and returns image details/svg details and background image details
-			pseudoText,  //// The css pseudo-element text overwrites the linktextR value???
-			isAbsolute, /// if the element is absolutely positioned - think because of kitchen sink links. absolute inside element that is relative.  used in the Chrome plugin, to 
-			nestedAria,
-			effectiveRect,
-			ancestorLink,
-			figureInfo,
-			elementHtml  /* other data */ })
-
-	
-	
-	
-		// fs.appendFileSync('z-test-file.txt',  dataString  );
-	// }
-
-
-
-}  // End Main For Loop
-
-
-
-
+            // Scrape the HTML of the element
+            const elementHtml = await scrapeElementHtml(elementItem);
+            
+            urlHrefsArr.push({ 
+                linkHasShadowDOMContent,
+                linkHasShadowDOM,
+                linkslotContent, 
+                linkcontainsSlot, 
+                type,
+                element,
+                linkId,
+                buttonOrLinkId, 
+                relAttribute,
+                haslinkTxtR,
+                linkTxt: linkTxtR,
+                linkUrl,
+                isInternal,
+                opensInNewWindowJs,
+                isOpeningNewWindow,
+                target,
+                hastitleAttribute,
+                titleAttribute,
+                hasTabindex,
+                tabindexAttribute,
+                isButton,
+                hasAriaDataOnElement,
+                elementAriaLabel,
+                elementAriaLabelledByText,
+                elementAriaDescribedByText,
+                hasOuterAriaData,
+                outerAriaContent,
+                hasImageInLink,
+                imageDetails,
+                pseudoText,
+                isAbsolute,
+                nestedAria,
+                effectiveRect,
+                ancestorLink,
+                figureInfo,
+                elementHtml
+            });
+        }
 
         ///////////////////////////////
         

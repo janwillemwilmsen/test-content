@@ -127,7 +127,18 @@ document.addEventListener('DOMContentLoaded', function() {
                                             ${item.linkUrl ? `<div class="item-url"><strong>URL:</strong> <a href="${item.linkUrl}" target="_blank">${item.linkUrl}</a></div>` : ''}
                                             ${item.target ? `<div class="item-target"><strong>Target:</strong> ${item.target}</div>` : ''}
                                             ${item.titleAttribute ? `<div class="item-title"><strong>Title:</strong> ${item.titleAttribute}</div>` : ''}
-                                            ${item.hasImageInLink ? `<div class="item-image"><strong>Contains Image:</strong> Yes</div>` : ''}
+                                            ${item.hasImageInLink ? `
+                                                <div class="item-image">
+                                                    <strong>Images:</strong>
+                                                    <div class="image-details">
+                                                        ${item.imageDetails ? renderImageDetails(item.imageDetails) : '<span class="no-image-details">No image details object found</span>'}
+                                                    </div>
+                                                    <details class="debug-details">
+                                                        <summary>Debug: Raw Image Data</summary>
+                                                        <pre class="debug-data">${JSON.stringify(item.imageDetails, null, 2)}</pre>
+                                                    </details>
+                                                </div>
+                                            ` : ''}
                                             ${item.elementAriaLabel ? `<div class="item-aria"><strong>Aria Label:</strong> ${item.elementAriaLabel}</div>` : ''}
                                             ${item.elementHtml ? `
                                                 <div class="item-html">
@@ -273,6 +284,147 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// Function to render image details
+function renderImageDetails(imageDetails) {
+    console.log('Image details received:', imageDetails);
+    console.log('Image details type:', typeof imageDetails);
+    
+    if (!imageDetails) {
+        return '<span class="no-image-details">No image details available</span>';
+    }
+
+    // Handle array format from backend
+    if (Array.isArray(imageDetails)) {
+        return renderImageDetailsArray(imageDetails);
+    }
+    
+    // Handle object format (fallback)
+    if (typeof imageDetails === 'object') {
+        return renderImageDetailsObject(imageDetails);
+    }
+    
+    return '<span class="no-image-details">Invalid image details format</span>';
+}
+
+// Function to render image details from array format (backend format)
+function renderImageDetailsArray(imageDetails) {
+    if (!imageDetails || imageDetails.length === 0) {
+        return '<span class="no-image-details">No images found</span>';
+    }
+
+    let html = '';
+    
+    // Group images by type
+    const normalImages = imageDetails.filter(img => img.type === 'img');
+    const svgImages = imageDetails.filter(img => img.type === 'svg');
+    const backgroundImages = imageDetails.filter(img => img.type === 'background');
+    
+    console.log('Normal images:', normalImages);
+    console.log('SVG images:', svgImages);
+    console.log('Background images:', backgroundImages);
+    
+    // Normal images
+    if (normalImages.length > 0) {
+        html += '<div class="image-type-section">';
+        html += '<h5>📷 Normal Images:</h5>';
+        normalImages.forEach((img, index) => {
+            html += '<div class="image-item">';
+            if (img.src) html += `<div class="image-src"><strong>Source:</strong> <a href="${img.src}" target="_blank">${img.src}</a></div>`;
+            if (img.altText) html += `<div class="image-alt"><strong>Alt:</strong> ${img.altText}</div>`;
+            if (img.titleText) html += `<div class="image-title"><strong>Title:</strong> ${img.titleText}</div>`;
+            if (img.ariaLabel) html += `<div class="image-alt"><strong>Aria Label:</strong> ${img.ariaLabel}</div>`;
+            if (img.ariaLabelledBy) html += `<div class="image-alt"><strong>Aria Labelled By:</strong> ${img.ariaLabelledBy}</div>`;
+            if (img.ariaDescribedBy) html += `<div class="image-alt"><strong>Aria Described By:</strong> ${img.ariaDescribedBy}</div>`;
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+    
+    // SVG images
+    if (svgImages.length > 0) {
+        html += '<div class="image-type-section">';
+        html += '<h5>🎨 SVG Images:</h5>';
+        svgImages.forEach((svg, index) => {
+            html += '<div class="image-item">';
+            if (svg.ariaLabel) html += `<div class="image-alt"><strong>Aria Label:</strong> ${svg.ariaLabel}</div>`;
+            if (svg.ariaLabelledBy) html += `<div class="image-alt"><strong>Aria Labelled By:</strong> ${svg.ariaLabelledBy}</div>`;
+            if (svg.ariaDescribedBy) html += `<div class="image-alt"><strong>Aria Described By:</strong> ${svg.ariaDescribedBy}</div>`;
+            if (svg.titleText) html += `<div class="image-title"><strong>Title:</strong> ${svg.titleText}</div>`;
+            if (svg.titleDesc) html += `<div class="image-desc"><strong>Description:</strong> ${svg.titleDesc}</div>`;
+            // Add SVG preview display
+            if (svg.preview) html += `<div class="image-preview"><strong>Preview:</strong><br><img src="${svg.preview}" alt="SVG Preview" style="max-width:150px;max-height:150px;border:1px solid #ddd;border-radius:4px;margin-top:5px;"/></div>`;
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+    
+    // Background images
+    if (backgroundImages.length > 0) {
+        html += '<div class="image-type-section">';
+        html += '<h5>🎭 Background Images:</h5>';
+        backgroundImages.forEach((bg, index) => {
+            html += '<div class="image-item">';
+            if (bg.src) html += `<div class="image-src"><strong>Background:</strong> ${bg.src}</div>`;
+            if (bg.previewSrc) html += `<div class="image-preview"><strong>Preview:</strong> Available</div>`;
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+    
+    return html || '<span class="no-image-details">No specific image details found</span>';
+}
+
+// Function to render image details from object format (fallback)
+function renderImageDetailsObject(imageDetails) {
+    let html = '';
+    
+    // Normal images
+    if (imageDetails.normalImages && imageDetails.normalImages.length > 0) {
+        html += '<div class="image-type-section">';
+        html += '<h5>📷 Normal Images:</h5>';
+        imageDetails.normalImages.forEach((img, index) => {
+            html += '<div class="image-item">';
+            html += `<div class="image-src"><strong>Source:</strong> <a href="${img.src}" target="_blank">${img.src}</a></div>`;
+            if (img.alt) html += `<div class="image-alt"><strong>Alt:</strong> ${img.alt}</div>`;
+            if (img.title) html += `<div class="image-title"><strong>Title:</strong> ${img.title}</div>`;
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+    
+    // SVG images
+    if (imageDetails.svgImages && imageDetails.svgImages.length > 0) {
+        html += '<div class="image-type-section">';
+        html += '<h5>🎨 SVG Images:</h5>';
+        imageDetails.svgImages.forEach((svg, index) => {
+            html += '<div class="image-item">';
+            if (svg.ariaLabel) html += `<div class="image-alt"><strong>Aria Label:</strong> ${svg.ariaLabel}</div>`;
+            if (svg.ariaLabelledBy) html += `<div class="image-alt"><strong>Aria Labelled By:</strong> ${svg.ariaLabelledBy}</div>`;
+            if (svg.ariaDescribedBy) html += `<div class="image-alt"><strong>Aria Described By:</strong> ${svg.ariaDescribedBy}</div>`;
+            if (svg.title) html += `<div class="image-title"><strong>Title:</strong> ${svg.title}</div>`;
+            if (svg.desc) html += `<div class="image-desc"><strong>Description:</strong> ${svg.desc}</div>`;
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+    
+    // Background images
+    if (imageDetails.backgroundImages && imageDetails.backgroundImages.length > 0) {
+        html += '<div class="image-type-section">';
+        html += '<h5>🎭 Background Images:</h5>';
+        imageDetails.backgroundImages.forEach((bg, index) => {
+            html += '<div class="image-item">';
+            html += `<div class="image-src"><strong>Background:</strong> ${bg.backgroundImage}</div>`;
+            if (bg.alt) html += `<div class="image-alt"><strong>Alt:</strong> ${bg.alt}</div>`;
+            if (bg.title) html += `<div class="image-title"><strong>Title:</strong> ${bg.title}</div>`;
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+    
+    return html || '<span class="no-image-details">No specific image details found</span>';
 }
 
 // Check if native popover is supported
