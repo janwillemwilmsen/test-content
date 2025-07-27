@@ -334,9 +334,12 @@ function renderImageDetailsArray(imageDetails) {
             if (img.src) html += `<div class="image-src"><strong>Source:</strong> <a href="${img.src}" target="_blank">${img.src}</a></div>`;
             if (img.altText) html += `<div class="image-alt"><strong>Alt:</strong> ${img.altText}</div>`;
             if (img.titleText) html += `<div class="image-title"><strong>Title:</strong> ${img.titleText}</div>`;
+            // Restore the ARIA attributes
             if (img.ariaLabel) html += `<div class="image-alt"><strong>Aria Label:</strong> ${img.ariaLabel}</div>`;
             if (img.ariaLabelledBy) html += `<div class="image-alt"><strong>Aria Labelled By:</strong> ${img.ariaLabelledBy}</div>`;
             if (img.ariaDescribedBy) html += `<div class="image-alt"><strong>Aria Described By:</strong> ${img.ariaDescribedBy}</div>`;
+            // Add preview display
+            if (img.preview) html += `<div class="image-preview"><strong>Preview:</strong><br><img src="${img.preview}" alt="Image Preview" style="max-width:150px;max-height:150px;border:1px solid #ddd;border-radius:4px;margin-top:5px;"/></div>`;
             html += '</div>';
         });
         html += '</div>';

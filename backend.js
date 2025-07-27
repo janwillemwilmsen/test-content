@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const sharp = require('sharp'); // Add Sharp import
 
 const app = express();
 const PORT = process.env.PORT || 3300;
@@ -659,6 +660,13 @@ async function advancedExtractImageData(elementItem, page) {
             const titleText = await getTitleTextfromImage(imgElem);
             const { hasAriaHiddenTrue } = await checkAriaHiddenIsTrue(imgElem);
             const { hasRolePresentationOrRoleNone } = await checkImageRoleForPresentationOrNone(imgElem);
+            
+            // Get the image source URL
+            const imageSrc = await imgElem.evaluate(el => el.src);
+            
+            // Generate preview using Sharp
+            const imagePreview = imageSrc ? await generateImagePreview(imageSrc, page) : null;
+            
             imageDetails.push({ 
                 imageId: imageId++, 
                 type: 'img', 
@@ -669,7 +677,9 @@ async function advancedExtractImageData(elementItem, page) {
                 ariaDescribedBy: null, 
                 titleText: titleText, 
                 hasAriaHiddenTrue: hasAriaHiddenTrue, 
-                hasRolePresentationOrRoleNone: hasRolePresentationOrRoleNone 
+                hasRolePresentationOrRoleNone: hasRolePresentationOrRoleNone,
+                src: imageSrc, // Add the source URL
+                preview: imagePreview // Add the preview
             });
         }
         for (const svgElem of svgChildElemHandles) {
@@ -709,22 +719,11 @@ async function advancedExtractImageData(elementItem, page) {
         const bgUrl = bgUrlMatch ? bgUrlMatch[1] : null;
         if (bgUrl) {
             try {
-                // Generate preview (simple data URI fetch)
-                const previewSrc = await page.evaluate(async (url) => {
-                    try {
-                        const response = await fetch(url);
-                        const blob = await response.blob();
-                        return new Promise(resolve => {
-                            const reader = new FileReader();
-                            reader.onloadend = () => resolve(reader.result);
-                            reader.readAsDataURL(blob);
-                        });
-                    } catch (e) {
-                        return null;
-                    }
-                }, bgUrl);
+                // Generate preview using Sharp instead of simple data URI fetch
+                const previewSrc = await generateImagePreview(bgUrl, page);
                 imageDetails.push({ type: 'background', src: bgUrl, previewSrc });
             } catch (e) {
+                console.error('Error processing background image:', e);
                 imageDetails.push({ type: 'background', src: bgUrl, previewSrc: null });
             }
         }
@@ -914,6 +913,49 @@ async function generateSvgPreview(svgString, page) {
             console.error('SVG preview fallback error:', fallbackErr);
             return null;
         }
+    }
+}
+
+async function generateImagePreview(imageUrl, page) {
+    try {
+        // Fetch the image from the URL
+        const imageBuffer = await page.evaluate(async (url) => {
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch image: ${response.status}`);
+                }
+                const arrayBuffer = await response.arrayBuffer();
+                return Array.from(new Uint8Array(arrayBuffer));
+            } catch (error) {
+                console.error('Error fetching image:', error);
+                return null;
+            }
+        }, imageUrl);
+
+        if (!imageBuffer) {
+            console.warn('Failed to fetch image for preview:', imageUrl);
+            return null;
+        }
+
+        // Convert array to Buffer
+        const buffer = Buffer.from(imageBuffer);
+
+        // Use Sharp to create a thumbnail
+        const thumbnail = await sharp(buffer)
+            .resize(200, 200, {
+                fit: 'inside',
+                withoutEnlargement: true
+            })
+            .jpeg({ quality: 80 })
+            .toBuffer();
+
+        // Convert to base64 data URL
+        const base64 = thumbnail.toString('base64');
+        return `data:image/jpeg;base64,${base64}`;
+    } catch (error) {
+        console.error('Error generating image preview:', error);
+        return null;
     }
 }
 
