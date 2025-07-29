@@ -23,7 +23,9 @@ app.get('/', (req, res) => {
 app.get('/svgs', (req, res) => {
     res.sendFile(path.join(__dirname, 'static', 'svgs', 'index.html'));
 });
-
+app.get('/svgs/smashing', (req, res) => {
+    res.sendFile(path.join(__dirname, 'static', 'svgs', 'smashing.html'));
+});
 
 
 // API routes
