@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SVG Extractor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input[type="url"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        input[type="url"]:focus {
+            border-color: #007bff;
+            outline: none;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #007bff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .results {
+            margin-top: 30px;
+        }
+        .svg-item {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #f9f9f9;
+        }
+        .svg-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .svg-title {
+            font-weight: bold;
+            color: #333;
+        }
+        .svg-count {
+            background-color: #007bff;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+        .svg-details {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 10px;
+        }
+        .svg-preview {
+            border: 1px solid #ddd;
+            padding: 10px;
+            background: white;
+            border-radius: 4px;
+            max-height: 200px;
+            overflow: auto;
+        }
+        .use-element {
+            background-color: #e3f2fd;
+            border: 1px solid #2196f3;
+            border-radius: 4px;
+            padding: 8px;
+            margin: 5px 0;
+            font-size: 12px;
+        }
+        .error {
+            background-color: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+        .success {
+            background-color: #e8f5e8;
+            color: #2e7d32;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 SVG Extractor</h1>
+        
+        <form id="svgForm">
+            <div class="form-group">
+                <label for="url">Website URL:</label>
+                <input type="url" id="url" name="url" placeholder="https://example.com" required>
+            </div>
+            
+            <button type="submit" id="submitBtn">Extract SVGs</button>
+            <button type="button" id="clearBtn" onclick="clearResults()">Clear Results</button>
+        </form>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Extracting SVGs from the webpage...</p>
+        </div>
+        
+        <div id="results" class="results"></div>
+    </div>
+
+    <script>
+        document.getElementById('svgForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const url = document.getElementById('url').value;
+            const submitBtn = document.getElementById('submitBtn');
+            const loading = document.getElementById('loading');
+            const results = document.getElementById('results');
+            
+            // Show loading state
+            submitBtn.disabled = true;
+            loading.style.display = 'block';
+            results.innerHTML = '';
+            
+            try {
+                const response = await fetch('/api/svgs/extract-svgs', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ url: url })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    displayResults(data.data);
+                } else {
+                    displayError(data.error);
+                }
+            } catch (error) {
+                displayError('Failed to connect to server: ' + error.message);
+            } finally {
+                // Hide loading state
+                submitBtn.disabled = false;
+                loading.style.display = 'none';
+            }
+        });
+        
+        function displayResults(data) {
+            const results = document.getElementById('results');
+            
+            let html = `
+                <div class="success">
+                    <h3>✅ SVG Extraction Complete</h3>
+                    <p><strong>URL:</strong> ${data.url}</p>
+                    <p><strong>SVGs Found:</strong> ${data.svgCount}</p>
+                    <p><strong>Timestamp:</strong> ${new Date(data.timestamp).toLocaleString()}</p>
+                </div>
+            `;
+            
+            if (data.svgs.length === 0) {
+                html += '<p>No SVGs found on this page.</p>';
+            } else {
+                data.svgs.forEach((svg, index) => {
+                    html += `
+                        <div class="svg-item">
+                            <div class="svg-header">
+                                <span class="svg-title">SVG #${index + 1}</span>
+                                <span class="svg-count">${svg.useElements.length} use elements</span>
+                            </div>
+                            <div class="svg-details">
+                                <strong>Class:</strong> ${svg.className || 'None'}<br>
+                                <strong>ID:</strong> ${svg.id || 'None'}<br>
+                                <strong>Width:</strong> ${svg.width || 'Auto'}<br>
+                                <strong>Height:</strong> ${svg.height || 'Auto'}<br>
+                                <strong>ViewBox:</strong> ${svg.viewBox || 'None'}<br>
+                                <strong>Focusable:</strong> ${svg.focusable || 'None'}<br>
+                                <strong>Aria-hidden:</strong> ${svg['aria-hidden'] || 'None'}
+                            </div>
+                            ${svg.useElements.length > 0 ? `
+                                <div class="use-elements">
+                                    <h4>Use Elements:</h4>
+                                    ${svg.useElements.map(use => `
+                                        <div class="use-element">
+                                            <strong>Href:</strong> ${use.href || 'None'}<br>
+                                            <strong>Xlink Href:</strong> ${use.xlinkHref || 'None'}<br>
+                                            <strong>Position:</strong> x=${use.x || '0'}, y=${use.y || '0'}<br>
+                                            <strong>Size:</strong> ${use.width || 'auto'} x ${use.height || 'auto'}
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            ` : ''}
+                            <div class="svg-preview">
+                                <strong>SVG Preview:</strong><br>
+                                <code>${escapeHtml(svg.outerHTML.substring(0, 500))}${svg.outerHTML.length > 500 ? '...' : ''}</code>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+            
+            results.innerHTML = html;
+        }
+        
+        function displayError(message) {
+            const results = document.getElementById('results');
+            results.innerHTML = `
+                <div class="error">
+                    <h3>❌ Error</h3>
+                    <p>${message}</p>
+                </div>
+            `;
+        }
+        
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+            document.getElementById('url').value = '';
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html> 

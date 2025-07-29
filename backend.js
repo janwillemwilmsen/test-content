@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const sharp = require('sharp'); // Add Sharp import
+const svgsRouter = require('./svgs.js');
 
 const app = express();
 const PORT = process.env.PORT || 3300;
@@ -16,6 +17,14 @@ app.use('/static', express.static(path.join(__dirname, 'static')));
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'static', 'index.html'));
 });
+
+
+// Serve the svg index.html as route
+app.get('/svgs', (req, res) => {
+    res.sendFile(path.join(__dirname, 'static', 'svgs', 'index.html'));
+});
+
+
 
 // API routes
 app.get('/api/status', (req, res) => {
@@ -1391,6 +1400,9 @@ function getSvgTitleDesc(svgElement) {
         });
     }
 });
+
+// Mount the SVGs router
+app.use('/api/svgs', svgsRouter);
 
 // Start the server
 app.listen(PORT, () => {
