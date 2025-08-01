@@ -86,6 +86,55 @@ router.post('/extract-svgs', async (req, res) => {
                          svg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
                     }
                     
+                    // Fix problematic attributes for resvg compatibility
+                    
+                    // 1. Remove preserveAspectRatio="none" which can cause issues
+                    if (svg.getAttribute('preserveAspectRatio') === 'none') {
+                        svg.removeAttribute('preserveAspectRatio');
+                        console.log('🔍 Removed preserveAspectRatio="none" for resvg compatibility');
+                    }
+                    
+                    // 2. Replace relative dimensions with absolute values based on viewBox
+                    const viewBox = svg.getAttribute('viewBox');
+                    const width = svg.getAttribute('width');
+                    const height = svg.getAttribute('height');
+                    
+                    if (viewBox && (width === '100%' || height === '100%')) {
+                        const [, , vbWidth, vbHeight] = viewBox.split(' ').map(Number);
+                        
+                        if (width === '100%') {
+                            svg.setAttribute('width', vbWidth.toString());
+                            console.log('🔍 Replaced width="100%" with absolute value:', vbWidth);
+                        }
+                        
+                        if (height === '100%') {
+                            svg.setAttribute('height', vbHeight.toString());
+                            console.log('🔍 Replaced height="100%" with absolute value:', vbHeight);
+                        }
+                    }
+                    
+                    // 3. Remove foreignObject elements which are not well supported by resvg
+                    const foreignObjects = svg.querySelectorAll('foreignObject');
+                    if (foreignObjects.length > 0) {
+                        console.log('🔍 Removing foreignObject elements for resvg compatibility');
+                        foreignObjects.forEach(fo => fo.remove());
+                    }
+                    
+                    // 4. Ensure the SVG has a reasonable size for preview
+                    if (!svg.getAttribute('width') && !svg.getAttribute('height') && viewBox) {
+                        const [, , vbWidth, vbHeight] = viewBox.split(' ').map(Number);
+                        const aspectRatio = vbWidth / vbHeight;
+                        
+                        if (aspectRatio > 1) {
+                            svg.setAttribute('width', '300');
+                            svg.setAttribute('height', Math.round(300 / aspectRatio).toString());
+                        } else {
+                            svg.setAttribute('height', '200');
+                            svg.setAttribute('width', Math.round(200 * aspectRatio).toString());
+                        }
+                        console.log('🔍 Added reasonable dimensions for preview');
+                    }
+                    
                     return new XMLSerializer().serializeToString(doc);
                     
                 } catch (e) {
@@ -513,6 +562,55 @@ async function generateSvgPreview(svgString, page) {
                              svg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
                         }
                         
+                        // Fix problematic attributes for resvg compatibility
+                        
+                        // 1. Remove preserveAspectRatio="none" which can cause issues
+                        if (svg.getAttribute('preserveAspectRatio') === 'none') {
+                            svg.removeAttribute('preserveAspectRatio');
+                            console.log('🔍 Removed preserveAspectRatio="none" for resvg compatibility');
+                        }
+                        
+                        // 2. Replace relative dimensions with absolute values based on viewBox
+                        const viewBox = svg.getAttribute('viewBox');
+                        const width = svg.getAttribute('width');
+                        const height = svg.getAttribute('height');
+                        
+                        if (viewBox && (width === '100%' || height === '100%')) {
+                            const [, , vbWidth, vbHeight] = viewBox.split(' ').map(Number);
+                            
+                            if (width === '100%') {
+                                svg.setAttribute('width', vbWidth.toString());
+                                console.log('🔍 Replaced width="100%" with absolute value:', vbWidth);
+                            }
+                            
+                            if (height === '100%') {
+                                svg.setAttribute('height', vbHeight.toString());
+                                console.log('🔍 Replaced height="100%" with absolute value:', vbHeight);
+                            }
+                        }
+                        
+                        // 3. Remove foreignObject elements which are not well supported by resvg
+                        const foreignObjects = svg.querySelectorAll('foreignObject');
+                        if (foreignObjects.length > 0) {
+                            console.log('🔍 Removing foreignObject elements for resvg compatibility');
+                            foreignObjects.forEach(fo => fo.remove());
+                        }
+                        
+                        // 4. Ensure the SVG has a reasonable size for preview
+                        if (!svg.getAttribute('width') && !svg.getAttribute('height') && viewBox) {
+                            const [, , vbWidth, vbHeight] = viewBox.split(' ').map(Number);
+                            const aspectRatio = vbWidth / vbHeight;
+                            
+                            if (aspectRatio > 1) {
+                                svg.setAttribute('width', '300');
+                                svg.setAttribute('height', Math.round(300 / aspectRatio).toString());
+                            } else {
+                                svg.setAttribute('height', '200');
+                                svg.setAttribute('width', Math.round(200 * aspectRatio).toString());
+                            }
+                            console.log('🔍 Added reasonable dimensions for preview');
+                        }
+                        
                         return new XMLSerializer().serializeToString(doc);
                         
                     } catch (e) {
@@ -778,7 +876,10 @@ async function generateSvgPreview(svgString, page) {
                 // Configure resvg with better defaults for SVGs without explicit dimensions
                 const resvg = new Resvg(processedSvg, {
                     fitTo: fitToConfig,
-                    background: 'white'
+                    background: 'white',
+                    // Add additional options for complex SVGs
+                    imageRendering: 'optimizeQuality',
+                    shapeRendering: 'geometricPrecision'
                 });
                 
                 const pngData = resvg.render();
@@ -798,7 +899,10 @@ async function generateSvgPreview(svgString, page) {
                     const { Resvg } = require('@resvg/resvg-js');
                     const fallbackResvg = new Resvg(processedSvg, {
                         fitTo: { mode: 'height', value: 50 },
-                        background: 'white'
+                        background: 'white',
+                        // Simplified options for complex SVGs
+                        imageRendering: 'optimizeSpeed',
+                        shapeRendering: 'auto'
                     });
                     
                     const fallbackPngData = fallbackResvg.render();
@@ -845,7 +949,10 @@ async function generateSvgPreview(svgString, page) {
                 // Configure resvg with better defaults for SVGs without explicit dimensions
                 const resvg = new Resvg(svgString, {
                     fitTo: fitToConfig,
-                    background: 'white'
+                    background: 'white',
+                    // Add additional options for complex SVGs
+                    imageRendering: 'optimizeQuality',
+                    shapeRendering: 'geometricPrecision'
                 });
                 
                 const pngData = resvg.render();
@@ -865,7 +972,10 @@ async function generateSvgPreview(svgString, page) {
                     const { Resvg } = require('@resvg/resvg-js');
                     const fallbackResvg = new Resvg(svgString, {
                         fitTo: { mode: 'height', value: 50 },
-                        background: 'white'
+                        background: 'white',
+                        // Simplified options for complex SVGs
+                        imageRendering: 'optimizeSpeed',
+                        shapeRendering: 'auto'
                     });
                     
                     const fallbackPngData = fallbackResvg.render();
