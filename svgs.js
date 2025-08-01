@@ -214,8 +214,19 @@ router.post('/extract-svgs', async (req, res) => {
                     
                     // Ensure required SVG attributes
                     newSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-                    if (!newSvg.getAttribute('width')) newSvg.setAttribute('width', '24');
-                    if (!newSvg.getAttribute('height')) newSvg.setAttribute('height', '24');
+                    
+                    // Handle xlink namespace if xlink attributes are present
+                    const hasXlinkAttributes = Array.from(svgElement.attributes).some(attr => 
+                        attr.name.startsWith('xlink:') || attr.name === 'xmlns:xlink'
+                    );
+                    
+                    if (hasXlinkAttributes && !newSvg.hasAttribute('xmlns:xlink')) {
+                        newSvg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+                        console.log('🔍 Added xmlns:xlink namespace to new SVG');
+                    }
+                    
+                    // Don't set default width/height - let viewBox handle scaling
+                    // This prevents aspect ratio issues with SVGs that have specific viewBox dimensions
                     
                     // Check if SVG has inline content (Scenario 1)
                     const hasInlineContent = svgElement.children.length > 0 && 
@@ -330,6 +341,30 @@ router.post('/extract-svgs', async (req, res) => {
                         
                         // Step 4: Ensure fixed colors
                         processedSvg = ensureSvgFixedColor(processedSvg);
+                        
+                        // Step 5: Final validation and namespace fix
+                        const parser = new DOMParser();
+                        const validationDoc = parser.parseFromString(processedSvg, 'image/svg+xml');
+                        const validationErrors = validationDoc.querySelectorAll('parsererror');
+                        
+                        if (validationErrors.length > 0) {
+                            console.warn(`🔍 SVG ${i} validation failed:`, validationErrors[0].textContent);
+                            
+                            // Try to fix xlink namespace issue if that's the problem
+                            if (processedSvg.includes('xlink:') && !processedSvg.includes('xmlns:xlink')) {
+                                console.log(`🔍 Attempting to fix xlink namespace issue for SVG ${i}...`);
+                                const fixedSvg = processedSvg.replace(/<svg/i, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
+                                
+                                // Validate the fixed version
+                                const fixedDoc = parser.parseFromString(fixedSvg, 'image/svg+xml');
+                                const fixedErrors = fixedDoc.querySelectorAll('parsererror');
+                                
+                                if (fixedErrors.length === 0) {
+                                    console.log(`🔍 Successfully fixed xlink namespace issue for SVG ${i}`);
+                                    processedSvg = fixedSvg;
+                                }
+                            }
+                        }
                         
                         // Check for <use> elements
                         const hasUseElements = svg.querySelector('use') !== null;
@@ -547,8 +582,19 @@ async function generateSvgPreview(svgString, page) {
                         
                         // Ensure required SVG attributes
                         newSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-                        if (!newSvg.getAttribute('width')) newSvg.setAttribute('width', '24');
-                        if (!newSvg.getAttribute('height')) newSvg.setAttribute('height', '24');
+                        
+                        // Handle xlink namespace if xlink attributes are present
+                        const hasXlinkAttributes = Array.from(svgElement.attributes).some(attr => 
+                            attr.name.startsWith('xlink:') || attr.name === 'xmlns:xlink'
+                        );
+                        
+                        if (hasXlinkAttributes && !newSvg.hasAttribute('xmlns:xlink')) {
+                            newSvg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+                            console.log('🔍 Added xmlns:xlink namespace to new SVG in preview generation');
+                        }
+                        
+                        // Don't set default width/height - let viewBox handle scaling
+                        // This prevents aspect ratio issues with SVGs that have specific viewBox dimensions
                         
                         // Check if SVG has inline content (Scenario 1)
                         const hasInlineContent = svgElement.children.length > 0 && 
@@ -652,6 +698,49 @@ async function generateSvgPreview(svgString, page) {
                 // Step 3: Ensure fixed colors
                 processedSvg = ensureSvgFixedColor(processedSvg);
                 
+                // Step 4: Validate SVG structure and fix any remaining namespace issues
+                const validationDoc = parser.parseFromString(processedSvg, 'image/svg+xml');
+                const validationSvg = validationDoc.querySelector('svg');
+                const validationErrors = validationDoc.querySelectorAll('parsererror');
+                
+                if (validationErrors.length > 0) {
+                    console.error('🔍 SVG validation failed:', validationErrors[0].textContent);
+                    
+                    // Try to fix xlink namespace issue if that's the problem
+                    if (processedSvg.includes('xlink:') && !processedSvg.includes('xmlns:xlink')) {
+                        console.log('🔍 Attempting to fix xlink namespace issue...');
+                        const fixedSvg = processedSvg.replace(/<svg/i, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
+                        
+                        // Validate the fixed version
+                        const fixedDoc = parser.parseFromString(fixedSvg, 'image/svg+xml');
+                        const fixedErrors = fixedDoc.querySelectorAll('parsererror');
+                        
+                        if (fixedErrors.length === 0) {
+                            console.log('🔍 Successfully fixed xlink namespace issue');
+                            return fixedSvg;
+                        }
+                    }
+                    
+                    return processedSvg; // Return anyway, let resvg try to handle it
+                }
+                
+                if (!validationSvg) {
+                    console.error('🔍 No SVG element found in processed content');
+                    return processedSvg;
+                }
+                
+                // Ensure SVG has at least some content
+                const hasContent = validationSvg.children.length > 0 || 
+                                 validationSvg.innerHTML.trim().length > 0;
+                
+                if (!hasContent) {
+                    console.warn('🔍 SVG appears to have no content');
+                }
+                
+                // Debug: Log the final processed SVG for troubleshooting
+                console.log('🔍 Final processed SVG:', processedSvg.substring(0, 200) + '...');
+                console.log('🔍 SVG has content:', hasContent, 'Children:', validationSvg.children.length);
+                
                 return processedSvg;
                 
             }, svgString, pageUrl);
@@ -661,34 +750,134 @@ async function generateSvgPreview(svgString, page) {
             // Now generate the preview using resvg
             try {
                 const { Resvg } = require('@resvg/resvg-js');
-                const resvg = new Resvg(processedSvg);
+                
+                // Parse the SVG to get viewBox dimensions for better sizing
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(processedSvg, 'image/svg+xml');
+                const svgElement = doc.querySelector('svg');
+                const viewBox = svgElement?.getAttribute('viewBox');
+                
+                let fitToConfig = { mode: 'width', value: 200 };
+                
+                if (viewBox) {
+                    const [, , width, height] = viewBox.split(' ').map(Number);
+                    const aspectRatio = width / height;
+                    
+                    console.log('🔍 SVG viewBox:', viewBox, 'Aspect ratio:', aspectRatio);
+                    
+                    // For very wide SVGs, use height-based fitting instead
+                    if (aspectRatio > 5) {
+                        fitToConfig = { mode: 'height', value: 40 };
+                        console.log('🔍 Using height-based fitting for wide SVG');
+                    } else if (aspectRatio < 0.2) {
+                        fitToConfig = { mode: 'width', value: 40 };
+                        console.log('🔍 Using width-based fitting for tall SVG');
+                    }
+                }
+                
+                // Configure resvg with better defaults for SVGs without explicit dimensions
+                const resvg = new Resvg(processedSvg, {
+                    fitTo: fitToConfig,
+                    background: 'white'
+                });
+                
                 const pngData = resvg.render();
                 const pngBuffer = pngData.asPng();
                 const base64Preview = `data:image/png;base64,${pngBuffer.toString('base64')}`;
                 
-                console.log('🔍 Generated preview successfully');
+                console.log('🔍 Generated preview successfully, PNG size:', pngBuffer.length, 'bytes');
                 return base64Preview;
                 
             } catch (resvgError) {
-                console.error(' Resvg error:', resvgError.message);
-                return null;
+                console.error('🔍 Resvg error:', resvgError.message);
+                console.error('🔍 SVG that failed:', processedSvg.substring(0, 300) + '...');
+                
+                // Try with a simpler configuration as fallback
+                try {
+                    console.log('🔍 Trying fallback resvg configuration...');
+                    const { Resvg } = require('@resvg/resvg-js');
+                    const fallbackResvg = new Resvg(processedSvg, {
+                        fitTo: { mode: 'height', value: 50 },
+                        background: 'white'
+                    });
+                    
+                    const fallbackPngData = fallbackResvg.render();
+                    const fallbackPngBuffer = fallbackPngData.asPng();
+                    const fallbackBase64Preview = `data:image/png;base64,${fallbackPngBuffer.toString('base64')}`;
+                    
+                    console.log('🔍 Fallback preview generated successfully');
+                    return fallbackBase64Preview;
+                } catch (fallbackError) {
+                    console.error('🔍 Fallback resvg also failed:', fallbackError.message);
+                    return null;
+                }
             }
             
         } else {
             // Simple SVG without <use> elements
             try {
                 const { Resvg } = require('@resvg/resvg-js');
-                const resvg = new Resvg(svgString);
+                
+                // Parse the SVG to get viewBox dimensions for better sizing
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(svgString, 'image/svg+xml');
+                const svgElement = doc.querySelector('svg');
+                const viewBox = svgElement?.getAttribute('viewBox');
+                
+                let fitToConfig = { mode: 'width', value: 200 };
+                
+                if (viewBox) {
+                    const [, , width, height] = viewBox.split(' ').map(Number);
+                    const aspectRatio = width / height;
+                    
+                    console.log('🔍 Simple SVG viewBox:', viewBox, 'Aspect ratio:', aspectRatio);
+                    
+                    // For very wide SVGs, use height-based fitting instead
+                    if (aspectRatio > 5) {
+                        fitToConfig = { mode: 'height', value: 40 };
+                        console.log('🔍 Using height-based fitting for wide simple SVG');
+                    } else if (aspectRatio < 0.2) {
+                        fitToConfig = { mode: 'width', value: 40 };
+                        console.log('🔍 Using width-based fitting for tall simple SVG');
+                    }
+                }
+                
+                // Configure resvg with better defaults for SVGs without explicit dimensions
+                const resvg = new Resvg(svgString, {
+                    fitTo: fitToConfig,
+                    background: 'white'
+                });
+                
                 const pngData = resvg.render();
                 const pngBuffer = pngData.asPng();
                 const base64Preview = `data:image/png;base64,${pngBuffer.toString('base64')}`;
                 
-                console.log('🔍 Generated simple preview successfully');
+                console.log('🔍 Generated simple preview successfully, PNG size:', pngBuffer.length, 'bytes');
                 return base64Preview;
                 
             } catch (resvgError) {
                 console.error('🔍 Resvg error for simple SVG:', resvgError.message);
-                return null;
+                console.error('🔍 Simple SVG that failed:', svgString.substring(0, 300) + '...');
+                
+                // Try with a simpler configuration as fallback
+                try {
+                    console.log('🔍 Trying fallback resvg configuration for simple SVG...');
+                    const { Resvg } = require('@resvg/resvg-js');
+                    const fallbackResvg = new Resvg(svgString, {
+                        fitTo: { mode: 'height', value: 50 },
+                        background: 'white'
+                    });
+                    
+                    const fallbackPngData = fallbackResvg.render();
+                    const fallbackPngBuffer = fallbackPngData.asPng();
+                    const fallbackBase64Preview = `data:image/png;base64,${fallbackPngBuffer.toString('base64')}`;
+                    
+                    console.log('🔍 Fallback simple preview generated successfully');
+                    return fallbackBase64Preview;
+                } catch (fallbackError) {
+                    console.error('🔍 Fallback resvg for simple SVG also failed:', fallbackError.message);
+                    return null;
+                }
             }
         }
         
