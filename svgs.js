@@ -112,27 +112,37 @@ router.post('/extract-svgs', async (req, res) => {
                     
                     elementsToColor.forEach(el => {
                          const currentFill = el.getAttribute('fill');
+                         const currentStroke = el.getAttribute('stroke');
                          const hasClasses = el.getAttribute('class');
                          
-                         if (!currentFill || currentFill.toLowerCase() === 'currentcolor' || (hasClasses && !currentFill)) {
+                         // Handle fill: Add if missing, currentColor, inherit, or none (for paths that should be filled)
+                         if (!currentFill || 
+                             currentFill.toLowerCase() === 'currentcolor' || 
+                             currentFill.toLowerCase() === 'inherit' ||
+                             (currentFill.toLowerCase() === 'none' && el.tagName.toLowerCase() === 'path')) {
                               el.setAttribute('fill', fixedColor);
-                              debugLog(`Added fill="${fixedColor}" to ${el.tagName} element with classes: ${hasClasses || 'none'}`);
+                              console.log(`Added fill="${fixedColor}" to ${el.tagName} element`);
                          }
                          
-                         const currentStroke = el.getAttribute('stroke');
-                         if (!currentStroke || currentStroke.toLowerCase() === 'currentcolor') {
-                              const fillIsNone = currentFill && currentFill.toLowerCase() === 'none';
-                              const tagName = el.tagName.toLowerCase();
-                              if (fillIsNone || (!currentFill && !hasClasses) || tagName === 'line' || tagName === 'polyline') {
-                                 el.setAttribute('stroke', fixedColor);
-                                 debugLog(`Added stroke="${fixedColor}" to ${el.tagName} element`);
-                              }
+                         // Handle stroke: Add if missing, currentColor, or inherit
+                         if (!currentStroke || 
+                             currentStroke.toLowerCase() === 'currentcolor' || 
+                             currentStroke.toLowerCase() === 'inherit') {
+                              el.setAttribute('stroke', fixedColor);
+                              console.log(`Added stroke="${fixedColor}" to ${el.tagName} element`);
+                         }
+                         
+                         // Special case: If element has both fill="none" and stroke, ensure stroke is visible
+                         if (currentFill && currentFill.toLowerCase() === 'none' && 
+                             (!currentStroke || currentStroke.toLowerCase() === 'inherit')) {
+                              el.setAttribute('stroke', fixedColor);
+                              console.log(`Added stroke="${fixedColor}" to ${el.tagName} with fill="none"`);
                          }
                     });
                     
                     const serializer = new XMLSerializer();
                     const result = serializer.serializeToString(svgElement);
-                    debugLog(`ensureSvgFixedColor processed ${elementsToColor.length} elements, result length: ${result.length}`);
+                    console.log(`ensureSvgFixedColor processed ${elementsToColor.length} elements, result length: ${result.length}`);
                     return result;
                 } catch (e) {
                     console.error("Error processing SVG for fixed color. Original source:", svgString, e);
@@ -493,19 +503,28 @@ async function generateSvgPreview(svgString, page) {
                         
                         elementsToColor.forEach(el => {
                              const currentFill = el.getAttribute('fill');
+                             const currentStroke = el.getAttribute('stroke');
                              const hasClasses = el.getAttribute('class');
                              
-                             if (!currentFill || currentFill.toLowerCase() === 'currentcolor' || (hasClasses && !currentFill)) {
+                             // Handle fill: Add if missing, currentColor, inherit, or none (for paths that should be filled)
+                             if (!currentFill || 
+                                 currentFill.toLowerCase() === 'currentcolor' || 
+                                 currentFill.toLowerCase() === 'inherit' ||
+                                 (currentFill.toLowerCase() === 'none' && el.tagName.toLowerCase() === 'path')) {
                                   el.setAttribute('fill', fixedColor);
                              }
                              
-                             const currentStroke = el.getAttribute('stroke');
-                             if (!currentStroke || currentStroke.toLowerCase() === 'currentcolor') {
-                                  const fillIsNone = currentFill && currentFill.toLowerCase() === 'none';
-                                  const tagName = el.tagName.toLowerCase();
-                                  if (fillIsNone || (!currentFill && !hasClasses) || tagName === 'line' || tagName === 'polyline') {
-                                     el.setAttribute('stroke', fixedColor);
-                                  }
+                             // Handle stroke: Add if missing, currentColor, or inherit
+                             if (!currentStroke || 
+                                 currentStroke.toLowerCase() === 'currentcolor' || 
+                                 currentStroke.toLowerCase() === 'inherit') {
+                                  el.setAttribute('stroke', fixedColor);
+                             }
+                             
+                             // Special case: If element has both fill="none" and stroke, ensure stroke is visible
+                             if (currentFill && currentFill.toLowerCase() === 'none' && 
+                                 (!currentStroke || currentStroke.toLowerCase() === 'inherit')) {
+                                  el.setAttribute('stroke', fixedColor);
                              }
                         });
                         
